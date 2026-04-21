@@ -69,3 +69,12 @@ class NotFound(CustomHTTPException):
 
     def __init__(self, msg: str, *, loc: list | None = None):
         super().__init__(msg, status_code=404, loc=loc)
+
+
+class DuplicateEntry(CustomHTTPException):
+    """
+    Common base class for 409 DUPLICATE ENTRY exceptions
+    """
+
+    def __init__(self, msg: str = "Duplicate Entry Found.", *, loc: list | None = None):
+        super().__init__(msg, status_code=409, loc=loc)

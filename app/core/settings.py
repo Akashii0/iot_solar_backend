@@ -28,6 +28,9 @@ class Settings(BaseSettings):
     # Database
     POSTGRES_DATABASE_URL: str
 
+    # OpenRouter
+    OPENROUTER_API_KEY: str
+
     @model_validator(mode="after")
     def _check_secret(self) -> Self:
         """Ensure that secrets are set properly."""
