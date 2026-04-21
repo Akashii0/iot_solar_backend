@@ -22,7 +22,10 @@ from app.core.handlers import (
     request_validation_exception_handler,
 )
 from app.core.tags import RouteTags
-from app.User.apis import router as user_router
+from app.Device.apis import router as device_router
+from app.Sensor.apis import router as sensor_router
+from app.Aurora.apis import router as aurora_router
+# from app.User.apis import router as user_router
 
 # Globals
 tags = RouteTags()
@@ -89,4 +92,7 @@ async def health(_: Session = Depends(get_session)):
 
 
 # Routers
-app.include_router(user_router, tags=[tags.USER])
+# app.include_router(user_router, tags=[tags.USER])
+app.include_router(device_router, tags=[tags.DEVICE])
+app.include_router(sensor_router, tags=[tags.SENSOR])
+app.include_router(aurora_router, tags=[tags.AURORA_AI])

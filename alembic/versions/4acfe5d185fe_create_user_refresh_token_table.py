@@ -41,4 +41,4 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_table("user_refresh_token")
+    op.drop_table("user_refresh_tokens")
