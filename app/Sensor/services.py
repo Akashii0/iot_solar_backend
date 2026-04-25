@@ -52,6 +52,43 @@ async def fetch_latest_data(device_id: int, db: AsyncSession):
     return latest_data
 
 
+async def fetch_sensor_history(
+    device_id: int,
+    db: AsyncSession,
+    minutes: int = 60,  # default last 60 minutes
+    start_time: datetime | None = None,
+    end_time: datetime | None = None,
+):
+    """
+    Fetch the recorded sensor data over a period of time
+
+    Args:
+        device_id (int): The Device ID
+        db (AsyncSession): The database Session
+        minutes (int, optional): The range in minutes. Defaults to 60.
+        end_time (datetime | None, optional): _description_. Defaults to None.
+
+    Returns:
+        _type_: _description_
+    """
+
+    data = SensorReadingCRUD(db=db)
+
+    if start_time is None and end_time is None:
+        end_time = datetime.utcnow()
+        start_time = end_time - timedelta(minutes=minutes)
+
+    readings = await data.get_sensor_history(
+        device_id=device_id,
+        db=db,
+        minutes=minutes,
+        start_time=start_time,
+        end_time=end_time,
+    )
+
+    return readings
+
+
 async def generate_current_voltage_chart(
     device_id: int, db: AsyncSession, hours: int = 24
 ) -> bytes:

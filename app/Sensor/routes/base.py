@@ -1,4 +1,5 @@
-from fastapi import APIRouter, HTTPException, Response
+from datetime import datetime
+from fastapi import APIRouter, HTTPException, Query, Response
 from app.Sensor import services, formatters
 from app.Sensor.schemas import create, response
 from app.common.annotations import DatabaseSession
@@ -105,3 +106,28 @@ async def route_fetch_current_over_time_chart(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     return Response(content=img_bytes, media_type="image/png")
+
+
+@router.get("/{device_id}/history")
+async def route_get_sensor_history(
+    device_id: int,
+    db: DatabaseSession,
+    minutes: int | None = Query(
+        60, ge=1, le=43200, description="Minutes of history (default 60)"
+    ),
+    start: datetime | None = None,
+    end: datetime | None = None,
+):
+    """
+    Get sensor reading history for a device.
+    You can either provide `minutes` (e.g., minutes=30) or explicit `start` and `end`.
+    """
+    readings = await services.fetch_sensor_history(
+        device_id, db, minutes=minutes or 60, start_time=start, end_time=end
+    )
+    return {
+        "device_id": device_id,
+        "data": [
+            await formatters.format_sensor_reading(reading) for reading in readings
+        ],
+    }
