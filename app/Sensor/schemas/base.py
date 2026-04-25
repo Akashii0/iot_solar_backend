@@ -15,6 +15,7 @@ class SensorReading(BaseModel):
     temperature: float = Field(description="The temperature reading from the MC")
     humidity: float = Field(description="The humidity reading from the MC")
     light_lux: float = Field(description="The light intensity reading from the solar")
-    power: float = Field(description="The power used by the appliance")
+    power: float | None = Field(description="The power used by the appliance")
+    solar_irradiance: float = Field(description="The Solar Irradiance Data")
     recorded_at: datetime = Field(description="The time the sensor data was recorded")
     created_at: datetime = Field(description="The time it was created")

@@ -14,7 +14,10 @@ async def format_sensor_reading(reading: models.SensorReading):
         "temperature": reading.temperature,
         "humidity": reading.humidity,
         "light_lux": reading.light_lux,
-        "power": (reading.voltage * reading.current),
+        "solar_irradiance": float(reading.light_lux) * 0.0079
+        if reading.light_lux is not None
+        else None,
+        "power": reading.voltage * reading.current,
         "recorded_at": reading.recorded_at,
         "created_at": reading.created_at,
     }
