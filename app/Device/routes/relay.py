@@ -1,6 +1,7 @@
 import asyncio
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, HTTPException
 from pydantic import BaseModel
+from app.Device import services
 from typing import Dict
 import json
 
@@ -113,23 +114,15 @@ async def control_power(device_id: str, command: RelayState):
     """
     Turn the main power relay ON or OFF.
     """
-    if command.state not in ["ON", "OFF"]:
-        raise HTTPException(status_code=400, detail="State must be 'ON' or 'OFF'")
-    await manager.send_command(device_id, {"relayPowerState": command.state})
-    return {"status": "ok", "device": device_id, "command": f"power {command.state}"}
+    return await services.set_power_state(device_id, command.state)
 
 
 @router.post("/{device_id}/appliance")
 async def control_appliance(device_id: str, command: RelayState):
-    """Turn the appliance relay ON or OFF."""
-    if command.state not in ["ON", "OFF"]:
-        raise HTTPException(status_code=400, detail="State must be 'ON' or 'OFF'")
-    await manager.send_command(device_id, {"relayApplianceState": command.state})
-    return {
-        "status": "ok",
-        "device": device_id,
-        "command": f"appliance {command.state}",
-    }
+    """
+    Turn the appliance relay ON or OFF.
+    """
+    return await services.set_appliance_state(device_id, command.state)
 
 
 @router.get("/{device_id}/status")

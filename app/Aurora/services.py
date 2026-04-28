@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 import json
 
 # from dotenv import load_dotenv
@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.Aurora.schemas import base
 from app.Aurora.utils.instructions import AGENT_INSTRUCTIONS
 from app.Device import selectors as device_selectors
+from app.Device import services as device_services
 from app.Sensor import services as sensor_services
 from app.Sensor import formatters as sensor_formatters
 from app.core.settings import get_settings
@@ -36,6 +37,13 @@ class AppDeps:
 class AgentResponse(BaseModel):
     message: str = Field(description="The output message from the LLM")
     used_tool: bool = Field(default=False, description="If a tool was called or not")
+
+
+BATTERY_CAPACITY_AH = 7.2
+NOMINAL_VOLTAGE = 12
+MAX_SAFE_CURRENT = 5  # realistic
+MIN_SOC_PERCENT = 20
+INVERTER_EFFICIENCY = 0.9
 
 
 class Aurora:
@@ -86,6 +94,9 @@ class Aurora:
             Returns feasibility status, reason, and estimated runtime if applicable.
             """
 
+            if load_power_watts <= 0:
+                return {"error": "Invalid load power"}
+
             # Get the latest reading
             latest = await sensor_services.fetch_latest_data(
                 device_id=ctx.deps.device_id, db=ctx.deps.db
@@ -94,36 +105,71 @@ class Aurora:
             if not latest:
                 return {"error": "Cannot assess feasibility without sensor data."}
 
-            voltage = latest.get("voltage")
-            if voltage is None:
+            voltage = getattr(latest, "voltage", None)
+            if not voltage:
                 return {"error": "Incomplete sensor data: missing voltage"}
 
             # TODO Example feasibility logic
             # ! In a real implementation, i will would have to use sensor data
             SOC = 0.78  # placeholder – should come from the SOC model
-            nominal_capacity_ah = 100
-            nominal_voltage = 12
-            max_discharge_current = 50  # A
+            # nominal_capacity_ah = 7.2
+            # nominal_voltage = 12
+            # max_discharge_current = 50  # A
 
-            load_current = load_power_watts / voltage if voltage else 0
+            load_current = load_power_watts / float(voltage)
 
-            if load_current > max_discharge_current:
+            if load_current > MAX_SAFE_CURRENT:
                 return {
                     "feasible": False,
-                    "reason": f"Load current {load_current:.1f}A exceeds maximum discharge current {max_discharge_current}A",
+                    "reason": f"Load draws {load_current:.2f}A which exceeds safe limit {MAX_SAFE_CURRENT}A",
                 }
 
-            eta_dod = 0.5
-            eta_inv = 0.9
-            usable_wh = SOC * nominal_capacity_ah * nominal_voltage * eta_dod * eta_inv
-            if usable_wh <= 0:
-                return {"feasible": False, "reason": "Battery is depleted"}
+            # ---- 2. SOC safety check ----
+            if SOC * 100 < MIN_SOC_PERCENT:
+                return {"feasible": False, "reason": "Battery charge too low"}
 
-            runtime_hours = usable_wh / load_power_watts if load_power_watts > 0 else 0
+            # eta_dod = 0.5
+            # eta_inv = 0.9
+            # usable_wh = SOC * nominal_capacity_ah * nominal_voltage * eta_dod * eta_inv
+            available_wh = (
+                SOC * BATTERY_CAPACITY_AH * NOMINAL_VOLTAGE * INVERTER_EFFICIENCY
+            )
+
+            # if usable_wh <= 0:
+            #     return {"feasible": False, "reason": "Battery is depleted"}
+
+            # runtime_hours = usable_wh / load_power_watts if load_power_watts > 0 else 0
+            runtime_hours = available_wh / load_power_watts
+
+            # =========================================
+            # INTELLIGENCE LAYER HERE
+            # =========================================
+
+            # ---- 4. Load classification ----
+            if load_current < 1:
+                status = "optimal"
+            elif load_current < 3:
+                status = "moderate"
+            else:
+                status = "heavy"
+
+            # ---- 5. Smart recommendation ----
+            recommendation = "Safe to use"
+
+            if runtime_hours < 1:
+                recommendation = "Battery will drain very quickly"
+            elif load_current > 3:
+                recommendation = "High load detected, consider reducing usage"
+            elif SOC < 0.3:
+                recommendation = "Battery is low, consider charging soon"
+
             return {
                 "feasible": True,
-                "reason": "Load is within battery limits",
+                "reason": "Load is safe to run",
+                "status": status,
                 "estimated_runtime_hours": round(runtime_hours, 2),
+                "current_draw_amps": round(load_current, 2),
+                "recommendation": recommendation,
             }
 
         @self.agent.tool
@@ -154,11 +200,55 @@ class Aurora:
                 "device_name": device.name,
                 "device_mac_address": device.mac_address,
                 "device_last_location": device.location,
-                "nominal_capacity_ah": 100,
+                "nominal_capacity_ah": 5,
                 "nominal_voltage": 12,
-                "max_load_capacity_watts": 3500,
+                "max_load_capacity_watts": 60,
+                "recommended_load_watts": 15,
                 "health_status": "Optimal",
             }
+
+        @self.agent.tool
+        async def control_relay(
+            ctx: RunContext[AppDeps],
+            relay: Literal["power", "appliance"],
+            state: Literal["ON", "OFF"],
+        ):
+            """
+            Control a device relay (power or appliance).
+
+               This tool is used to switch electrical relays connected to the IoT system.
+
+               RELAY TYPES:
+               - "power": Controls the main power source.
+                   • "ON" = Grid power enabled
+                   • "OFF" = Solar power source enabled
+
+               - "appliance": Controls connected appliance output.
+
+               STATE RULES:
+               - Must be exactly "ON" or "OFF"
+               - Must be uppercase only
+               - No extra words, spaces, or variations allowed
+
+               IMPORTANT:
+               - Always ensure battery safety before enabling power-heavy loads
+               - This action has direct hardware impact
+
+               Args:
+                   relay (str): The relay to control ("power" or "appliance")
+                   state (str): Desired state ("ON" or "OFF")
+            """
+
+            device_id = str(ctx.deps.device_id)
+
+            if relay == "power":
+                result = await device_services.set_power_state(device_id, state)
+            elif relay == "appliance":
+                result = await device_services.set_appliance_state(device_id, state)
+            else:
+                return {"error": "Invalid relay type. Use 'power' or 'appliance'"}
+
+            return {"message": f"{relay} relay turned {state}", "data": result}
 
         @self.agent.tool_plain
         async def get_current_time() -> str:
@@ -249,7 +339,7 @@ class Aurora:
 
             async with self.agent.run_stream(prompt, deps=deps) as result:
                 async for content in result.stream_text():
-                    delta = content[len(previous):]
+                    delta = content[len(previous) :]
                     previous = content
 
                     yield self._encode_sse(
